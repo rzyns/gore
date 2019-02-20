@@ -40,8 +40,8 @@ import (
 
 	"golang.org/x/tools/imports"
 
-	"github.com/mitchellh/go-homedir"
-	"github.com/motemen/go-quickfix"
+	homedir "github.com/mitchellh/go-homedir"
+	quickfix "github.com/motemen/go-quickfix"
 )
 
 const version = "0.3.0"
@@ -221,7 +221,7 @@ func NewSession(stdout, stderr io.Writer) (*Session, error) {
 	s := &Session{
 		Fset: token.NewFileSet(),
 		Types: &types.Config{
-			Importer: importer.Default(),
+			Importer: importer.For("source", nil),
 		},
 		stdout: stdout,
 		stderr: stderr,
