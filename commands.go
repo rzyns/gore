@@ -61,7 +61,7 @@ func init() {
 		{
 			name:     commandName("clear"),
 			action:   actionClear,
-			document: "clear the codes",
+			document: "clear the code",
 		},
 		{
 			name:     commandName("d[oc]"),
