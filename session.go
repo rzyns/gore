@@ -121,6 +121,7 @@ func (s *Session) init() (err error) {
 
 	s.lastStmts = nil
 	s.lastDecls = nil
+
 	return nil
 }
 
@@ -425,7 +426,7 @@ func (s *Session) restoreCode() {
 	s.file.Decls = decls
 }
 
-// includeFiles imports packages and funcsions from multiple golang source
+// includeFiles imports packages and functions from multiple golang source files
 func (s *Session) includeFiles(files []string) {
 	for _, file := range files {
 		s.includeFile(file)
@@ -533,6 +534,7 @@ func (s *Session) fixImports() error {
 	if err != nil {
 		return err
 	}
+
 	s.mainBody = s.mainFunc().Body
 
 	return nil
