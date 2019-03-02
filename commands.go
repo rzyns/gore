@@ -15,6 +15,7 @@ import (
 
 	"go/ast"
 	"go/build"
+	"go/parser"
 	"go/types"
 
 	"golang.org/x/tools/go/ast/astutil"
@@ -79,6 +80,17 @@ func init() {
 			name:     commandName("q[uit]"),
 			action:   actionQuit,
 			document: "quit the session",
+		},
+		{
+			name:     commandName("e[dit]"),
+			action:   actionEdit,
+			arg:      "[cmd]",
+			document: "edit the current source",
+		},
+		{
+			name:     commandName("r[un]"),
+			action:   actionRun,
+			document: "run the current code",
 		},
 	}
 }
@@ -392,4 +404,72 @@ func actionHelp(s *Session, _ string) error {
 
 func actionQuit(s *Session, _ string) error {
 	return ErrQuit
+}
+
+func actionEdit(s *Session, arg string) error {
+	var (
+		editor, bin string
+		args        []string
+		err         error
+	)
+
+	filename := filepath.Join(s.tempDir, "edit.go")
+	if len(arg) > 0 {
+		bin = "/bin/sh"
+		args = []string{"-c", fmt.Sprintf("%s %s", arg, filename)}
+	} else {
+		args = []string{filename}
+
+		if editor = os.Getenv("VISUAL"); editor == "" {
+			if editor = os.Getenv("EDITOR"); editor == "" {
+				editor = "vi"
+			}
+		}
+
+		bin, err = exec.LookPath(editor)
+		if err != nil {
+			return fmt.Errorf("Couldn't find editor: %v", err)
+		}
+	}
+
+	src, err := s.source(false)
+	if err != nil {
+		return fmt.Errorf("Couldn't get source: %v", err)
+	}
+
+	ioutil.WriteFile(filename, []byte(src), 0644)
+	if err != nil {
+		return fmt.Errorf("Error writing source: %v", err)
+	}
+
+	cmd := exec.Command(bin, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err = cmd.Run()
+	if err != nil {
+		return err
+	}
+
+	data, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("Error reading back file: %v", err)
+	}
+
+	s.file, err = parser.ParseFile(s.fset, s.tempFilePath, data, parser.Mode(0))
+	if err != nil {
+		return err
+	}
+
+	s.mainBody = s.mainFunc().Body
+
+	s.lastStmts = nil
+	s.lastDecls = nil
+
+	return s.Run()
+}
+
+func actionRun(s *Session, _ string) error {
+	return s.Run()
 }
