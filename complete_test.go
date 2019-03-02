@@ -1,4 +1,4 @@
-package main
+package gore
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 	"github.com/motemen/gore/gocode"
 )
 
-func TestSession_completeCode(t *testing.T) {
+func TestSession_completeWord(t *testing.T) {
 	if gocode.Available() == false {
 		t.Skipf("gocode unavailable")
 	}
@@ -20,19 +20,60 @@ func TestSession_completeCode(t *testing.T) {
 	defer s.Clear()
 	require.NoError(t, err)
 
-	keep, cands, err := s.completeCode("", 0, true)
-	require.NoError(t, err)
+	pre, cands, post := s.completeWord("", 0)
+	assert.Equal(t, "", pre)
+	assert.Equal(t, []string{"    "}, cands)
+	assert.Equal(t, post, "")
 
-	assert.Equal(t, 0, keep)
-	assert.Contains(t, cands, "main(")
-	assert.NotContains(t, cands, printerName+"(")
+	pre, cands, post = s.completeWord("    x", 4)
+	assert.Equal(t, "", pre)
+	assert.Equal(t, []string{"        "}, cands)
+	assert.Equal(t, post, "x")
+
+	pre, cands, post = s.completeWord(" : :", 4)
+	assert.Equal(t, "", pre)
+	assert.Equal(t, []string{
+		" : :import ",
+		" : :type ",
+		" : :print",
+		" : :write ",
+		" : :clear",
+		" : :doc ",
+		" : :help",
+		" : :quit",
+	}, cands)
+	assert.Equal(t, post, "")
+
+	pre, cands, post = s.completeWord(" : : i", 6)
+	assert.Equal(t, "", pre)
+	assert.Equal(t, []string{" : : import "}, cands)
+	assert.Equal(t, post, "")
+
+	pre, cands, post = s.completeWord("::i t", 5)
+	assert.Equal(t, "::i ", pre)
+	assert.Equal(t, []string{"testing", "text", "time"}, cands)
+	assert.Equal(t, post, "")
+
+	pre, cands, post = s.completeWord(":c", 2)
+	assert.Equal(t, "", pre)
+	assert.Equal(t, []string{":clear"}, cands)
+	assert.Equal(t, post, "")
+
+	pre, cands, post = s.completeWord(" : : q", 6)
+	assert.Equal(t, "", pre)
+	assert.Equal(t, []string{" : : quit"}, cands)
+	assert.Equal(t, post, "")
 
 	err = actionImport(s, "fmt")
 	require.NoError(t, err)
 
-	keep, cands, err = s.completeCode("fmt.p", 5, true)
-	require.NoError(t, err)
-
-	assert.Equal(t, 4, keep)
+	pre, cands, post = s.completeWord("fmt.p", 5)
+	assert.Equal(t, "fmt.", pre)
 	assert.Contains(t, cands, "Println(")
+	assert.Equal(t, post, "")
+
+	pre, cands, post = s.completeWord(" ::: doc  f", 11)
+	assert.Equal(t, " ::: doc ", pre)
+	assert.Equal(t, []string{" fmt"}, cands)
+	assert.Equal(t, post, "")
 }

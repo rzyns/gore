@@ -1,22 +1,35 @@
-package main
+package gore
 
 import (
+	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/motemen/gore/gocode"
 )
 
 func (s *Session) completeWord(line string, pos int) (string, []string, string) {
-	if strings.HasPrefix(line, ":") {
+	if strings.HasPrefix(strings.TrimSpace(line), ":") {
 		// complete commands
-		if !strings.Contains(line[0:pos], " ") {
-			pre, post := line[0:pos], line[pos:]
+		var idx int
+		in := strings.TrimLeftFunc(line[:pos], func(c rune) bool {
+			if c == ':' || unicode.IsSpace(c) {
+				idx++
+				return true
+			}
+			return false
+		})
+		var cmd string
+		if tokens := strings.Fields(in); len(tokens) > 0 {
+			cmd = tokens[0]
+		}
 
-			result := []string{}
+		if !strings.Contains(in, " ") {
+			pre, post := line[:idx], line[pos:]
+			var result []string
 			for _, command := range commands {
-				name := ":" + command.name
-				if strings.HasPrefix(name, pre) {
-					// having complete means that this command takes an argument (for now)
+				name := pre + fmt.Sprint(command.name)
+				if cmd == "" || command.name.matchesPrefix(cmd) {
 					if !strings.HasPrefix(post, " ") && command.arg != "" {
 						name = name + " "
 					}
@@ -28,14 +41,11 @@ func (s *Session) completeWord(line string, pos int) (string, []string, string) 
 
 		// complete command arguments
 		for _, command := range commands {
-			if command.complete == nil {
+			if command.complete == nil || !command.name.matches(cmd) {
 				continue
 			}
-
-			cmdPrefix := ":" + command.name + " "
-			if strings.HasPrefix(line, cmdPrefix) && pos >= len(cmdPrefix) {
-				return cmdPrefix, command.complete(s, line[len(cmdPrefix):pos]), ""
-			}
+			cmdPrefix := line[:idx] + cmd + " "
+			return cmdPrefix, command.complete(s, line[len(cmdPrefix):pos]), ""
 		}
 
 		return "", nil, ""
@@ -43,6 +53,10 @@ func (s *Session) completeWord(line string, pos int) (string, []string, string) 
 
 	if gocode.Available() == false {
 		return "", nil, ""
+	}
+
+	if strings.TrimSpace(line[:pos]) == "" {
+		return "", []string{line[:pos] + indent}, line[pos:]
 	}
 
 	// code completion
@@ -55,7 +69,7 @@ func (s *Session) completeWord(line string, pos int) (string, []string, string) 
 	return line[0:pos], cands, ""
 }
 
-// completeCode does code completion within the session using gocode (https://github.com/nsf/gocode).
+// completeCode does code completion within the session using gocode.
 // in and pos specifies the current input and the cursor position (0 <= pos <= len(in)) respectively.
 // If exprMode is set to true, the completion is done as an expression (e.g. appends "(" to functions).
 // Return value keep specifies how many characters of in should be kept and candidates are what follow in[0:keep].

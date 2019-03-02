@@ -1,4 +1,4 @@
-package main
+package gore
 
 import (
 	"bytes"
@@ -18,7 +18,7 @@ func init() {
 	}
 }
 
-func TestRun_import(t *testing.T) {
+func TestSessionEval_import(t *testing.T) {
 	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 	s, err := NewSession(stdout, stderr)
 	defer s.Clear()
@@ -42,7 +42,7 @@ func TestRun_import(t *testing.T) {
 	assert.Equal(t, "", stderr.String())
 }
 
-func TestRun_QuickFix_evaluated_but_not_used(t *testing.T) {
+func TestSessionEval_QuickFix_evaluated_but_not_used(t *testing.T) {
 	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 	s, err := NewSession(stdout, stderr)
 	defer s.Clear()
@@ -73,7 +73,7 @@ func TestRun_QuickFix_evaluated_but_not_used(t *testing.T) {
 	assert.Equal(t, "", stderr.String())
 }
 
-func TestRun_QuickFix_used_as_value(t *testing.T) {
+func TestSessionEval_QuickFix_used_as_value(t *testing.T) {
 	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 	s, err := NewSession(stdout, stderr)
 	defer s.Clear()
@@ -94,14 +94,45 @@ func TestRun_QuickFix_used_as_value(t *testing.T) {
 	assert.Equal(t, "", stderr.String())
 }
 
-func TestRun_FixImports(t *testing.T) {
+func TestSessionEval_QuickFix_no_new_variables(t *testing.T) {
 	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 	s, err := NewSession(stdout, stderr)
 	defer s.Clear()
 	require.NoError(t, err)
 
-	autoimport := true
-	flagAutoImport = &autoimport
+	codes := []string{
+		`var a, b int`,
+		`a := 2`,
+		`b := a * 2`,
+		`a := 3`,
+		`c := a * b`,
+		`c := b * c`,
+		`b := c * a`,
+		`a * b * c`,
+	}
+
+	for _, code := range codes {
+		err := s.Eval(code)
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, `2
+4
+3
+12
+48
+144
+20736
+`, stdout.String())
+	assert.Equal(t, "", stderr.String())
+}
+
+func TestSessionEval_AutoImport(t *testing.T) {
+	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+	s, err := NewSession(stdout, stderr)
+	defer s.Clear()
+	require.NoError(t, err)
+	s.autoImport = true
 
 	codes := []string{
 		`filepath.Join("a", "b")`,
@@ -116,7 +147,7 @@ func TestRun_FixImports(t *testing.T) {
 	assert.Equal(t, "", stderr.String())
 }
 
-func TestIncludePackage(t *testing.T) {
+func TestSession_IncludePackage(t *testing.T) {
 	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 	s, err := NewSession(stdout, stderr)
 	defer s.Clear()
@@ -129,7 +160,7 @@ func TestIncludePackage(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestRun_Copy(t *testing.T) {
+func TestSessionEval_Copy(t *testing.T) {
 	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 	s, err := NewSession(stdout, stderr)
 	defer s.Clear()
@@ -139,9 +170,7 @@ func TestRun_Copy(t *testing.T) {
 		`a := []string{"hello", "world"}`,
 		`b := []string{"goodbye", "world"}`,
 		`copy(a, b)`,
-		`if (a[0] != "goodbye") {
-			panic("should be copied")
-		}`,
+		`a[0]`,
 	}
 
 	for _, code := range codes {
@@ -152,11 +181,12 @@ func TestRun_Copy(t *testing.T) {
 	assert.Equal(t, `[]string{"hello", "world"}
 []string{"goodbye", "world"}
 2
+"goodbye"
 `, stdout.String())
 	assert.Equal(t, "", stderr.String())
 }
 
-func TestRun_Const(t *testing.T) {
+func TestSessionEval_Const(t *testing.T) {
 	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 	s, err := NewSession(stdout, stderr)
 	defer s.Clear()
@@ -177,7 +207,7 @@ func TestRun_Const(t *testing.T) {
 	assert.Equal(t, "", stderr.String())
 }
 
-func TestRun_NotUsed(t *testing.T) {
+func TestSessionEval_NotUsed(t *testing.T) {
 	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 	s, err := NewSession(stdout, stderr)
 	defer s.Clear()
@@ -212,7 +242,7 @@ func TestRun_NotUsed(t *testing.T) {
 	assert.Equal(t, "", stderr.String())
 }
 
-func TestRun_MultipleValues(t *testing.T) {
+func TestSessionEval_MultipleValues(t *testing.T) {
 	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 	s, err := NewSession(stdout, stderr)
 	defer s.Clear()
@@ -250,7 +280,63 @@ func TestRun_MultipleValues(t *testing.T) {
 	assert.Equal(t, "", stderr.String())
 }
 
-func TestRun_Error(t *testing.T) {
+func TestSessionEval_Func(t *testing.T) {
+	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+	s, err := NewSession(stdout, stderr)
+	defer s.Clear()
+	require.NoError(t, err)
+
+	codes := []string{
+		`func f() int { return 100 }`,
+		`func g() string { return "hello, world" }`,
+		`func h() int { return "foo" }`,
+		`f() + len(g())`,
+		`func f() int { return 200 }`,
+		`f() * len(g())`,
+		`func f() string { return 100 }`,
+		`f() | len(g())`,
+	}
+
+	for _, code := range codes {
+		_ = s.Eval(code)
+	}
+
+	assert.Equal(t, "112\n2400\n204\n", stdout.String())
+	assert.Equal(t, `cannot use "foo" (type string) as type int in return argument
+invalid operation: f() + len(g()) (mismatched types string and int)
+invalid operation: f() * len(g()) (mismatched types string and int)
+cannot use 100 (type int) as type string in return argument
+`, stderr.String())
+}
+
+func TestSessionEval_TokenError(t *testing.T) {
+	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+	s, err := NewSession(stdout, stderr)
+	defer s.Clear()
+	require.NoError(t, err)
+
+	codes := []string{
+		`foo\`,
+		`ba # r`,
+		`$ + 3`,
+		`~1`,
+		"`foo",
+		"`foo\nbar`",
+	}
+
+	for _, code := range codes {
+		_ = s.Eval(code)
+	}
+
+	assert.Equal(t, "\"foo\\nbar\"\n", stdout.String())
+	assert.Equal(t, `invalid token: "\\"
+invalid token: "#"
+invalid token: "$"
+invalid token: "~"
+`, stderr.String())
+}
+
+func TestSessionEval_CompileError(t *testing.T) {
 	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 	s, err := NewSession(stdout, stderr)
 	defer s.Clear()
@@ -258,16 +344,21 @@ func TestRun_Error(t *testing.T) {
 
 	codes := []string{
 		`foo`,
-		`len(100)`,
+		`func f() int { return 100 }`,
+		`func g() string { return "hello" }`,
+		`len(f())`,
+		`len(g())`,
+		`f() + g()`,
+		`f() + len(g())`,
 	}
 
 	for _, code := range codes {
-		err := s.Eval(code)
-		require.Error(t, err)
+		_ = s.Eval(code)
 	}
 
-	assert.Equal(t, "", stdout.String())
+	assert.Equal(t, "5\n105\n", stdout.String())
 	assert.Equal(t, `undefined: foo
-invalid argument 100 (type int) for len
+invalid argument f() (type int) for len
+invalid operation: f() + g() (mismatched types int and string)
 `, stderr.String())
 }

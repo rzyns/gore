@@ -1,4 +1,4 @@
-package main
+package gore
 
 import (
 	"fmt"
@@ -21,55 +21,62 @@ import (
 )
 
 type command struct {
-	name     string
+	name     commandName
 	action   func(*Session, string) error
 	complete func(*Session, string) []string
 	arg      string
 	document string
 }
 
-// TODO
-// - :edit
-// - :undo
-// - :reset
-// - :type
 var commands []command
 
 func init() {
 	commands = []command{
 		{
-			name:     "import",
+			name:     commandName("i[mport]"),
 			action:   actionImport,
 			complete: completeImport,
 			arg:      "<package>",
 			document: "import a package",
 		},
 		{
-			name:     "print",
+			name:     commandName("t[ype]"),
+			action:   actionType,
+			arg:      "<expr>",
+			complete: completeDoc,
+			document: "print the type of expression",
+		},
+		{
+			name:     commandName("print"),
 			action:   actionPrint,
 			document: "print current source",
 		},
 		{
-			name:     "write",
+			name:     commandName("w[rite]"),
 			action:   actionWrite,
 			complete: nil, // TODO implement
 			arg:      "[<file>]",
 			document: "write out current source",
 		},
 		{
-			name:     "doc",
+			name:     commandName("clear"),
+			action:   actionClear,
+			document: "clear the codes",
+		},
+		{
+			name:     commandName("d[oc]"),
 			action:   actionDoc,
 			complete: completeDoc,
 			arg:      "<expr or pkg>",
 			document: "show documentation",
 		},
 		{
-			name:     "help",
+			name:     commandName("h[elp]"),
 			action:   actionHelp,
 			document: "show this help",
 		},
 		{
-			name:     "quit",
+			name:     commandName("q[uit]"),
 			action:   actionQuit,
 			document: "quit the session",
 		},
@@ -78,7 +85,7 @@ func init() {
 
 func actionImport(s *Session, arg string) error {
 	if arg == "" {
-		return fmt.Errorf("arg required")
+		return fmt.Errorf("argument is required")
 	}
 
 	if strings.Contains(arg, " ") {
@@ -97,12 +104,12 @@ func actionImport(s *Session, arg string) error {
 	path := strings.Trim(arg, `"`)
 
 	// check if the package specified by path is importable
-	_, err := s.Types.Importer.Import(path)
+	_, err := s.types.Importer.Import(path)
 	if err != nil {
 		return err
 	}
 
-	astutil.AddImport(s.Fset, s.File, path)
+	astutil.AddImport(s.fset, s.file, path)
 
 	return nil
 }
@@ -197,6 +204,43 @@ func actionPrint(s *Session, _ string) error {
 	return nil
 }
 
+func actionType(s *Session, in string) error {
+	if in == "" {
+		return fmt.Errorf("argument is required")
+	}
+
+	s.clearQuickFix()
+
+	s.storeCode()
+	defer s.restoreCode()
+
+	expr, err := s.evalExpr(in)
+	if err != nil {
+		return err
+	}
+
+	s.typeInfo = types.Info{
+		Types:  make(map[ast.Expr]types.TypeAndValue),
+		Uses:   make(map[*ast.Ident]types.Object),
+		Defs:   make(map[*ast.Ident]types.Object),
+		Scopes: make(map[ast.Node]*types.Scope),
+	}
+	_, err = s.types.Check("_tmp", s.fset, []*ast.File{s.file}, &s.typeInfo)
+	if err != nil {
+		debugf("typecheck error (ignored): %s", err)
+	}
+
+	typ := s.typeInfo.TypeOf(expr)
+	if typ == nil {
+		return fmt.Errorf("cannot get type: %v", expr)
+	}
+	if typ, ok := typ.(*types.Basic); ok && typ.Kind() == types.Invalid {
+		return fmt.Errorf("cannot get type: %v", expr)
+	}
+	fmt.Fprintf(s.stdout, "%v\n", typ)
+	return nil
+}
+
 func actionWrite(s *Session, filename string) error {
 	source, err := s.source(false)
 	if err != nil {
@@ -217,24 +261,32 @@ func actionWrite(s *Session, filename string) error {
 	return nil
 }
 
+func actionClear(s *Session, _ string) error {
+	return s.init()
+}
+
 func actionDoc(s *Session, in string) error {
+	if in == "" {
+		return fmt.Errorf("argument is required")
+	}
+
 	s.clearQuickFix()
 
-	s.storeMainBody()
-	defer s.restoreMainBody()
+	s.storeCode()
+	defer s.restoreCode()
 
 	expr, err := s.evalExpr(in)
 	if err != nil {
 		return err
 	}
 
-	s.TypeInfo = types.Info{
+	s.typeInfo = types.Info{
 		Types:  make(map[ast.Expr]types.TypeAndValue),
 		Uses:   make(map[*ast.Ident]types.Object),
 		Defs:   make(map[*ast.Ident]types.Object),
 		Scopes: make(map[ast.Node]*types.Scope),
 	}
-	_, err = s.Types.Check("_tmp", s.Fset, []*ast.File{s.File}, &s.TypeInfo)
+	_, err = s.types.Check("_tmp", s.fset, []*ast.File{s.file}, &s.typeInfo)
 	if err != nil {
 		debugf("typecheck error (ignored): %s", err)
 	}
@@ -246,8 +298,8 @@ func actionDoc(s *Session, in string) error {
 	var docObj types.Object
 	if sel, ok := expr.(*ast.SelectorExpr); ok {
 		// package member, package type member
-		docObj = s.TypeInfo.ObjectOf(sel.Sel)
-	} else if t := s.TypeInfo.TypeOf(expr); t != nil && t != types.Typ[types.Invalid] {
+		docObj = s.typeInfo.ObjectOf(sel.Sel)
+	} else if t := s.typeInfo.TypeOf(expr); t != nil && t != types.Typ[types.Invalid] {
 		for {
 			if pt, ok := t.(*types.Pointer); ok {
 				t = pt.Elem()
@@ -264,7 +316,7 @@ func actionDoc(s *Session, in string) error {
 		}
 	} else if ident, ok := expr.(*ast.Ident); ok {
 		// package name
-		mainScope := s.TypeInfo.Scopes[s.mainFunc().Type]
+		mainScope := s.typeInfo.Scopes[s.mainFunc().Type]
 		_, docObj = mainScope.LookupParent(ident.Name, ident.NamePos)
 	}
 
@@ -288,12 +340,12 @@ func actionDoc(s *Session, in string) error {
 
 	debugf("doc :: %q %q", pkgPath, objName)
 
-	args := []string{pkgPath}
+	args := []string{"doc", pkgPath}
 	if objName != "" {
 		args = append(args, objName)
 	}
 
-	godoc := exec.Command("godoc", args...)
+	godoc := exec.Command("go", args...)
 	godoc.Stderr = s.stderr
 
 	// TODO just use PAGER?
@@ -327,7 +379,7 @@ func actionDoc(s *Session, in string) error {
 func actionHelp(s *Session, _ string) error {
 	w := tabwriter.NewWriter(s.stdout, 0, 8, 4, ' ', 0)
 	for _, command := range commands {
-		cmd := ":" + command.name
+		cmd := fmt.Sprintf(":%s", command.name)
 		if command.arg != "" {
 			cmd = cmd + " " + command.arg
 		}
