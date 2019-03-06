@@ -93,7 +93,7 @@ func NewSession(stdout, stderr io.Writer) (*Session, error) {
 
 func (s *Session) init() (err error) {
 	s.fset = token.NewFileSet()
-	s.types = &types.Config{Importer: importer.Default()}
+	s.types = &types.Config{Importer: importer.For("source", nil)}
 	s.typeInfo = types.Info{}
 	s.extraFilePaths = nil
 	s.extraFiles = nil
