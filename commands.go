@@ -424,13 +424,19 @@ func actionEdit(s *Session, arg string) error {
 		bin = "/bin/sh"
 		args = []string{"-c", fmt.Sprintf("%s %s", arg, filename)}
 	} else {
-		args = []string{filename}
+		// args = []string{filename}
 
-		if editor = os.Getenv("VISUAL"); editor == "" {
-			if editor = os.Getenv("EDITOR"); editor == "" {
-				editor = "vi"
+		ed := os.Getenv("VISUAL")
+		if ed == "" {
+			ed = os.Getenv("EDITOR")
+			if ed == "" {
+				ed = "vi"
 			}
 		}
+
+		parts := strings.Split(ed, " ")
+		args = append(append(args, parts[1:]...), filename)
+		editor = parts[0]
 
 		bin, err = exec.LookPath(editor)
 		if err != nil {
