@@ -92,6 +92,12 @@ func init() {
 			action:   actionRun,
 			document: "run the current code",
 		},
+		{
+			name:     commandName("de[fine]"),
+			action:   actionDefine,
+			arg:      "<declaration>",
+			document: "define (declare) a GenDecl",
+		},
 	}
 }
 
@@ -472,4 +478,8 @@ func actionEdit(s *Session, arg string) error {
 
 func actionRun(s *Session, _ string) error {
 	return s.Run()
+}
+
+func actionDefine(s *Session, in string) error {
+	return s.evalGenDecl(in)
 }

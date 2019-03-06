@@ -43,6 +43,7 @@ func TestSession_completeWord(t *testing.T) {
 		" : :quit",
 		" : :edit ",
 		" : :run",
+		" : :define ",
 	}, cands)
 	assert.Equal(t, post, "")
 

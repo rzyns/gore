@@ -218,6 +218,30 @@ func (s *Session) evalStmt(in string) error {
 	return nil
 }
 
+func (s *Session) evalGenDecl(in string) error {
+	src := fmt.Sprintf("package P; %s", in)
+
+	f, err := parser.ParseFile(s.fset, "decl.go", src, parser.Mode(0))
+	if err != nil {
+		return err
+	}
+
+	ast.FilterFile(s.file, func(name string) bool {
+		if obj := f.Scope.Lookup(name); obj != nil {
+			return false
+		}
+		return true
+	})
+
+	if len(f.Decls) > 0 {
+		for _, d := range f.Decls {
+			s.file.Decls = append(s.file.Decls, d)
+		}
+	}
+
+	return nil
+}
+
 func (s *Session) evalFunc(in string) error {
 	src := fmt.Sprintf("package P; %s", in)
 	f, err := parser.ParseFile(s.fset, "func.go", src, parser.Mode(0))
