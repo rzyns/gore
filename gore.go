@@ -3,6 +3,7 @@ package gore
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +24,23 @@ func (g *gore) run() error {
 	if err != nil {
 		return err
 	}
+
+	wd, err := os.Getwd()
+	if err == nil {
+		// this is almost certainly unnecessary...
+		defer os.Chdir(wd)
+	}
+
+	err = os.Chdir(s.tempDir)
+	if err != nil {
+		return err
+	}
+
+	err = ioutil.WriteFile(filepath.Join(s.tempDir, "go.mod"), []byte("module gore_session"), 0664)
+	if err != nil {
+		return err
+	}
+
 	s.autoImport = g.autoImport
 
 	fmt.Fprintf(g.errWriter, "gore version %s  :help for help\n", version)
