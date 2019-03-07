@@ -193,22 +193,16 @@ func (s *Session) evalStmt(in string) error {
 	if len(stmts) > 0 {
 		debugf("evalStmt :: %s", showNode(s.fset, stmts))
 		lastStmt := stmts[len(stmts)-1]
-		// print last assigned/defined values
 		if assign, ok := lastStmt.(*ast.AssignStmt); ok {
-			vs := []ast.Expr{}
-			for _, v := range assign.Lhs {
-				if !isNamedIdent(v, "_") {
-					vs = append(vs, v)
-				}
+			if s := buildPrintStmt(assign.Lhs); s != nil {
+				stmts = append(stmts, s)
 			}
-			if len(vs) > 0 {
-				printLastValues := &ast.ExprStmt{
-					X: &ast.CallExpr{
-						Fun:  ast.NewIdent(printerName),
-						Args: vs,
-					},
+		}
+		if decl, ok := lastStmt.(*ast.DeclStmt); ok {
+			if decl, ok := decl.Decl.(*ast.GenDecl); ok {
+				if s := buildPrintStmtOfDecl(decl); s != nil {
+					stmts = append(stmts, s)
 				}
-				stmts = append(stmts, printLastValues)
 			}
 		}
 	}
@@ -240,6 +234,45 @@ func (s *Session) evalGenDecl(in string) error {
 	}
 
 	return nil
+}
+
+func buildPrintStmt(exprs []ast.Expr) ast.Stmt {
+	vs := make([]ast.Expr, 0, len(exprs))
+	for _, v := range exprs {
+		if !isNamedIdent(v, "_") {
+			vs = append(vs, v)
+		}
+	}
+	if len(vs) == 0 {
+		return nil
+	}
+	return &ast.ExprStmt{
+		X: &ast.CallExpr{
+			Fun:  ast.NewIdent(printerName),
+			Args: vs,
+		},
+	}
+}
+
+func buildPrintStmtOfDecl(decl *ast.GenDecl) ast.Stmt {
+	var cnt int
+	for _, s := range decl.Specs {
+		if vs, ok := s.(*ast.ValueSpec); ok {
+			cnt += len(vs.Values)
+		}
+	}
+	if cnt == 0 {
+		return nil
+	}
+	exprs := make([]ast.Expr, 0, cnt)
+	for _, s := range decl.Specs {
+		if vs, ok := s.(*ast.ValueSpec); ok {
+			for _, name := range vs.Names {
+				exprs = append(exprs, ast.Expr(name))
+			}
+		}
+	}
+	return buildPrintStmt(exprs)
 }
 
 func (s *Session) evalFunc(in string) error {
